@@ -1,0 +1,36 @@
+.gitignore
+# Entorno virtual
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Variables de entorno — NUNCA subir
+.env
+
+# Base de datos de memoria
+memory/memory.json
+memory/
+
+# Traces — generados en runtime
+traces/
+
+# ChromaDB si aplica
+chroma_db/
+
+# Credenciales
+*.json
+!pyproject.toml
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+EOF
