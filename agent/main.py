@@ -47,21 +47,27 @@ logger = logging.getLogger(__name__)
 
 
 async def _load_mcp_tools(config, settings, registry: ToolRegistry) -> int:
+    """
+    Carga los tools de cada servidor MCP configurado en agent.yaml.
+
+    Soporta stdio (Context7) y streamable-http (Tavily).
+    La API key se resuelve desde .env vía Settings.
+    """
     if not config.mcp_servers:
         return 0
     total = 0
     for mcp_cfg in config.mcp_servers:
         if not mcp_cfg.enabled:
             continue
-        api_key = settings.get_mcp_api_key(mcp_cfg.api_key_env) if mcp_cfg.api_key_env else ""
-        adapter = MCPClientAdapter(
-            name=mcp_cfg.name,
-            url=mcp_cfg.url,
-            api_key=api_key,
-            api_key_param=mcp_cfg.api_key_param,
-            api_key_header=mcp_cfg.api_key_header,
-            transport=mcp_cfg.transport,
-        )
+
+        # Convertir config Pydantic a dict para from_config()
+        cfg_dict = mcp_cfg.model_dump()
+
+        # Resolver API key desde .env si aplica
+        if mcp_cfg.api_key_env:
+            cfg_dict["api_key"] = settings.get_mcp_api_key(mcp_cfg.api_key_env)
+
+        adapter = MCPClientAdapter.from_config(cfg_dict)
         tools = await adapter.load_tools()
         for tool in tools:
             registry.register(tool)

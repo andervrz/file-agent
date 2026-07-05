@@ -67,13 +67,15 @@ tools:
 
 # ── MCP Servers ───────────────────────────────────────────────────────────────
 mcp_servers:
+       
+  # Context7 vía stdio (RECOMENDADO — evita el bug GET 405)
   - name: "context7"
-    url: "https://mcp.context7.com/mcp"
-    api_key_env: "CONTEXT7_API_KEY"    # opcional — tier gratuito funciona sin key
-    api_key_param: ""
-    api_key_header: "CONTEXT7_API_KEY" # Context7 espera la key en este header
-    transport: "streamable-http"
+    command: "npx"
+    args: ["-y", "@upstash/context7-mcp"]
+    api_key_env: "CONTEXT7_API_KEY"   # lee de tu .env
+    transport: "stdio"
     enabled: true
+
 
   - name: "tavily"
     url: "https://mcp.tavily.com/mcp/"

@@ -55,27 +55,29 @@ class ToolsConfig(BaseModel):
 
 class MCPServerConfig(BaseModel):
     """
-    Configuración de un servidor MCP remoto.
+    Configuración de un servidor MCP remoto o local.
 
-    Campos
-    ------
-    name           : Identificador del servidor (ej. "tavily", "context7")
-    url            : URL base del endpoint MCP
-    api_key_env    : Nombre de la variable de entorno que contiene el API key.
-                     El valor se lee de Settings en tiempo de arranque.
-    api_key_param  : Key como query param en la URL (ej. Tavily: "tavilyApiKey").
-                     Mutuamente excluyente con api_key_header.
-    api_key_header : Key como header HTTP personalizado (ej. Context7:
-                     "CONTEXT7_API_KEY"). Si está vacío y api_key_param también,
-                     se usa "Authorization: Bearer <key>".
-    transport      : "streamable-http" (default) | "sse"
-    enabled        : False deshabilita el servidor sin eliminarlo del YAML.
+    Transportes
+    -----------
+    stdio            : Corre el servidor localmente (npx, bunx, etc.).
+                       Requiere `command` + `args`. `url` se ignora.
+    streamable-http  : Conexión HTTP stateless. Requiere `url`.
+    sse              : Server-Sent Events. Requiere `url`.
+
+    API Key
+    -------
+    api_key_env    : Nombre de la variable de entorno (se lee vía Settings).
+    api_key_param  : Key como query param en la URL (ej. "tavilyApiKey").
+    api_key_header : Key como header HTTP (ej. "CONTEXT7_API_KEY").
+                     Si ambos están vacíos con key presente → "Authorization: Bearer <key>".
     """
     name: str
-    url: str
+    url: str = ""                    # obligatorio para http/sse
+    command: str = ""                # obligatorio para stdio
+    args: list[str] = Field(default_factory=list)  # args para stdio
     api_key_env: str = ""
     api_key_param: str = ""
-    api_key_header: str = ""       # nuevo — header HTTP personalizado para la key
+    api_key_header: str = ""
     transport: str = "streamable-http"
     enabled: bool = True
 
