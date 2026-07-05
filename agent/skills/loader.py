@@ -1,7 +1,10 @@
 # agent/skills/loader.py
+import logging
 from pathlib import Path
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class SkillMetadata(BaseModel):
@@ -23,13 +26,25 @@ class SkillLoader:
 
     def load_metadata(self) -> list[SkillMetadata]:
         skills: list[SkillMetadata] = []
+
+        # FIX: loguear cuando el path no existe en lugar de fallar silenciosamente.
+        # Causa más frecuente de Skills: 0 en el banner.
         if not self._path.exists():
+            logger.warning(
+                "Skills path not found — Skills will show as 0. "
+                "Run the agent from the project root or use an absolute path. "
+                "Resolved path: %s",
+                self._path.resolve(),
+            )
             return skills
+
+        loaded = 0
         for skill_dir in self._path.iterdir():
             if not skill_dir.is_dir():
                 continue
             skill_file = skill_dir / "SKILL.md"
             if not skill_file.exists():
+                logger.debug("Skipping %s — no SKILL.md found", skill_dir.name)
                 continue
             frontmatter = self._parse_frontmatter(skill_file.read_text(encoding="utf-8"))
             if frontmatter:
@@ -42,6 +57,13 @@ class SkillLoader:
                         path=skill_dir,
                     )
                 )
+                loaded += 1
+            else:
+                logger.warning(
+                    "Skill %s has no valid frontmatter — skipped", skill_dir.name
+                )
+
+        logger.info("Loaded %d skill(s) from %s", loaded, self._path.resolve())
         return skills
 
     def load_body(self, skill_name: str) -> str:
@@ -60,10 +82,10 @@ class SkillLoader:
         if len(parts) < 3:
             return None
         import yaml
-
         try:
             return yaml.safe_load(parts[1]) or {}
-        except yaml.YAMLError:
+        except yaml.YAMLError as e:
+            logger.warning("YAML parse error in frontmatter: %s", e)
             return None
 
     def _extract_body(self, content: str) -> str:

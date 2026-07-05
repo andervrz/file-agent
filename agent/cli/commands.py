@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from ..core.config import AgentConfig
 from ..loop.harness import AgentHarness
-from ..memory.store import TinyDBMemoryStore, SessionSummary
+from ..memory.store import TinyDBMemoryStore
 from ..traces.recorder import TraceRecorder
 from . import display
 from .display import SessionStats
@@ -76,16 +76,16 @@ async def handle_command(
 # ─── Handlers ─────────────────────────────────────────────────────────────────
 
 async def _handle_exit(session: SessionStats, memory: TinyDBMemoryStore) -> CommandResult:
-    if memory._enabled and session.total_turns > 0:
-        from datetime import datetime, timezone
-        summary = SessionSummary(
-            session_id=session.session_id,
-            summary=f"Sesión de {session.total_turns} turnos, {session.total_tools} tools",
-            tools_used=[],
-            total_turns=session.total_turns,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
-        await memory.save_session(summary)
+    """
+    Señaliza salida del REPL.
+
+    FIX: el guardado de SessionSummary + archive_session se movió por
+    completo a repl.py (bloque "Al salir"), que corre incondicionalmente
+    tras salir del loop, sin importar si la salida fue por /exit,
+    Ctrl+C o EOF. Antes este handler guardaba un SessionSummary aquí Y
+    repl.py guardaba otro después, duplicando la escritura en la ruta /exit.
+    Este handler ahora solo señaliza should_exit=True; no persiste nada.
+    """
     display.print_info("Sesión guardada. Adiós.")
     return CommandResult(handled=True, should_exit=True)
 

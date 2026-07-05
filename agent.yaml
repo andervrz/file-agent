@@ -1,61 +1,87 @@
 # agent.yaml
 agent:
   name: "File Agent"
-  version: "1.0.0"
-  description: "Agente de gestión de archivos y terminal con lenguaje natural"
+  version: "2.0.0"
+  description: "Agente de gestión de archivos, terminal, navegador y búsqueda en tiempo real"
 
 llm:
   provider: "ollama"
   host: "https://ollama.com"
-  model: "gpt-oss:20b"
+  model: "gpt-oss:20b-cloud"
   temperature: 0.1
   num_ctx: 4096
-  num_predict: 2048
+  num_predict: 4096
 
 system_prompt: >-
-  Eres File Agent, un asistente especializado en gestión de archivos y terminal.
-  NO eres ChatGPT, GPT-4, ni ningún otro asistente genérico. Tu nombre es File Agent.
-  Operas exclusivamente desde la línea de comandos. Sigues instrucciones con precisión.
-  Nunca inventas paths ni contenidos de archivos. Antes de ejecutar operaciones
-  DANGEROUS (rm, rmdir, dd, truncate), pides confirmación explícita al usuario.
-  Si un tool retorna error, no asumes éxito. Reportas el error en lenguaje natural y claro.
-  NUNCA expliques tu formato interno de tools, schemas o parámetros al usuario.
-  NUNCA muestres JSON, estructuras de datos, ni nombres de parámetros técnicos.
-  Si una operación falla, di simplemente qué salió mal en una oración simple.
-  Respondes en español por defecto.
-  PATHS: El directorio home del usuario es {HOME}. Siempre usa rutas absolutas.
-  {HOME}/Documents es la carpeta de documentos del usuario.
-  {HOME}/Downloads es la carpeta de descargas del usuario.
-  {HOME}/Desktop es el escritorio del usuario.
-  Cuando el usuario mencione Documents, Downloads, Desktop u otras carpetas
-  estándar, usa siempre {HOME}/nombre_carpeta como ruta absoluta.
-  CONTEXTO DE CARPETA: Cuando el usuario mencione una subcarpeta sin ruta
-  completa, usa el historial de la conversación para resolver la ruta correcta.
-  Si la última operación fue en /ruta/X/, asume que "subcarpeta" significa /ruta/X/subcarpeta.
-  ARCHIVOS EXISTENTES: Al escribir en un archivo que ya existe,
-  usa overwrite=true automáticamente sin pedir confirmación.
-  ESCRITURA EN ARCHIVOS: Cuando escribas contenido en un archivo y la operación
-  sea exitosa UNA VEZ, responde inmediatamente con una confirmación breve.
-  NO vuelvas a llamar el mismo tool con los mismos argumentos. Una sola llamada es suficiente.
-  UNA TAREA A LA VEZ: Cuando el usuario pida modificar UN archivo específico,
-  opera SOLO sobre ese archivo. No toques ni recrees otros archivos del contexto.
-  OPERACIONES EN LOTE: Para mover, copiar o eliminar múltiples archivos,
-  usa run_command con mv/cp/rm en lugar de tools individuales.
-  Ejemplo: mv {HOME}/Downloads/*.py {HOME}/Downloads/python_moduls/
-  BUCLES: Si ya ejecutaste un tool y obtuviste su resultado,
-  NO lo repitas. Usa el resultado que ya tienes para responder.
+  Eres File Agent. Gestión de archivos, terminal Linux, navegador web y búsqueda en tiempo real.
+  Responde siempre en español. Sé conciso. Usa rutas absolutas. Home: {HOME}
+
+  REGLAS CRÍTICAS:
+  1. NUNCA afirmes haber completado una operación sin haber ejecutado el tool.
+  2. Si el archivo ya existe y el usuario quiere sobreescribirlo, usa create_file con overwrite=true.
+  3. Para leer PDFs como texto usa read_pdf. Para VERLOS visualmente usa browser.
+  4. Para listar carpetas usa list_directory con la ruta absoluta exacta.
+  5. Para crear archivos dentro de una carpeta usa la ruta completa: {HOME}/carpeta/archivo.txt
+  6. Para eliminar ARCHIVOS usa delete_file. Para CARPETAS usa delete_directory.
+  7. Para abrir archivos que el navegador soporta (PDF, imágenes, HTML, video) usa browser.
+     Para Word, Excel, PowerPoint usa open_file.
+  8. Para navegar o interactuar con páginas web usa browser.
+  9. Para buscar información actualizada en internet usa web_search.
+  10. Para consultar documentación de librerías: PRIMERO llama resolve-library-id para obtener el libraryId, LUEGO llama get-library-docs con ese ID.
+      Son dos llamadas obligatorias en secuencia. No repitas resolve-library-id.
+  11. No repitas el mismo tool con los mismos argumentos.
+  12. Nunca describas contenido sin haberlo leído con un tool.
+  13. Responde SOLO con la información final. NUNCA escribas "THOUGHT:" ni razonamiento interno.
 
 tools:
   enabled:
+    # ── Fase 1: File tools ────────────────────────────────────────────────────
     - create_file
     - read_file
     - list_directory
     - move_file
     - copy_file
     - delete_file
+    - delete_directory
     - create_directory
     - search_files
     - run_command
+    # ── Fase 2: PDF ───────────────────────────────────────────────────────────
+    - read_pdf
+    # ── Fase 2.5: Tools avanzados ─────────────────────────────────────────────
+    - backup
+    - git
+    - create_word
+    - create_excel
+    - create_presentation
+    - archive
+    - create_from_template
+    - diff_files
+    - find_in_files
+    # ── Fase 3: SO, navegador y búsqueda ─────────────────────────────────────
+    - open_file
+    - browser
+    - web_search
+    # Nota: tools MCP (resolve-library-id, get-library-docs, tavily_search...)
+    # se cargan automáticamente desde mcp_servers — no van en esta lista.
+
+# ── MCP Servers ───────────────────────────────────────────────────────────────
+mcp_servers:
+  - name: "context7"
+    url: "https://mcp.context7.com/mcp"
+    api_key_env: "CONTEXT7_API_KEY"    # opcional — tier gratuito funciona sin key
+    api_key_param: ""
+    api_key_header: "CONTEXT7_API_KEY" # Context7 espera la key en este header
+    transport: "streamable-http"
+    enabled: true
+
+  - name: "tavily"
+    url: "https://mcp.tavily.com/mcp/"
+    api_key_env: "TAVILY_API_KEY"
+    api_key_param: "tavilyApiKey"
+    api_key_header: ""
+    transport: "streamable-http"
+    enabled: false   # keys dev no soportan endpoint MCP — activar con plan paid
 
 context:
   max_history_messages: 10
@@ -88,6 +114,6 @@ security:
     - /proc
     - /dev
   timeout_seconds:
-    safe:      10
-    moderate:  30
+    safe:      30
+    moderate:  45
     dangerous: 60

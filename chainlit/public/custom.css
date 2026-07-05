@@ -1,0 +1,36 @@
+/* public/custom.css — File Agent dark theme tweaks */
+
+/* Fuente monoespaciada para paths y outputs de tools */
+.cl-step-output,
+.cl-step-input {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.82rem;
+}
+
+/* Step de tool con borde izquierdo de color acento */
+.cl-step[data-type="tool"] {
+  border-left: 3px solid var(--cl-color-primary, #4a9eff);
+  padding-left: 0.75rem;
+}
+
+/* Error en tool — borde rojo */
+.cl-step[data-error="true"] {
+  border-left-color: #ff4444;
+}
+
+/* Stats footer en cursiva y más pequeño */
+.cl-message-content p em {
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+
+/* Botones de acción quick — más compactos */
+.cl-action-button {
+  font-size: 0.82rem;
+  padding: 0.2rem 0.6rem;
+}
+
+/* Respuesta del agente con padding ligeramente mayor */
+.cl-message[data-author="File Agent"] .cl-message-content {
+  padding: 0.25rem 0;
+}

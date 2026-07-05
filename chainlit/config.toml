@@ -1,0 +1,68 @@
+[project]
+# Telemetría deshabilitada — proyecto local
+enable_telemetry = false
+
+[features]
+# Deshabilitamos playground de prompts (no aplica para este agente)
+prompt_playground = false
+
+# Subida de archivos habilitada — para que el usuario pueda adjuntar docs
+multi_modal = true
+
+# Persistencia de chat (requiere LiteralAI API key — comentar si no se usa)
+chat_persist = true
+
+# Autoscroll y edición de mensajes
+user_message_autoscroll = true
+edit_message = true
+
+# Confirmación al crear nuevo chat
+confirm_new_chat = true
+
+[features.spontaneous_file_upload]
+enabled = true
+accept = ["*/*"]
+max_files = 5
+max_size_mb = 50
+
+[auth]
+type = "credentials"
+
+[UI]
+name        = "File Agent"
+description = "Gestión de archivos, terminal y navegador con lenguaje natural"
+
+# Tema dark por defecto — consistente con la CLI
+default_theme = "dark"
+
+# Layout wide — más espacio para el contenido de archivos y listas largas
+layout = "wide"
+
+# Chain of Thought: muestra solo los tool calls, no el razonamiento interno
+# "hidden" | "tool_call" | "full"
+cot = "tool_call"
+
+# Sidebar abierta al inicio para ver los botones de acción rápida
+default_sidebar_state = "open"
+
+# Estilo moderno para alertas
+alert_style = "modern"
+
+# CSS personalizado
+custom_css = "/public/custom.css"
+
+# .chainlit/config.toml
+[auth]
+type = "header"
+
+
+#[server]
+# Para desarrollo local
+# host = "127.0.0.1"
+# port = 8000
+
+# En producción/Docker:
+# host = "0.0.0.0"
+
+# WebSocket-only para evitar problemas con load balancers
+# transports = ["websocket"]

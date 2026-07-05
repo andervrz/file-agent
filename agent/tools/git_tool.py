@@ -19,7 +19,8 @@ _SAFE = {
 _MODERATE = {
     "init", "add", "commit", "checkout", "switch", "merge",
     "rebase", "cherry-pick", "rm", "mv", "restore", "worktree",
-    "submodule", "notes", "tag",
+    "submodule", "notes",
+    # FIX: eliminado "tag" duplicado — ya está en _SAFE
 }
 
 _NETWORK = {
@@ -41,15 +42,32 @@ class GitValidator:
         Retorna (permitido: bool, motivo_si_bloqueado: str).
         """
         cmd = command.strip().lower()
-        all_args = args.lower() if args else ""
 
         allowed = cmd in _SAFE or cmd in _MODERATE or cmd in _NETWORK
         if not allowed:
             return False, f"Comando git '{cmd}' no reconocido o no permitido."
 
-        # Detectar flags destructivos
+        # FIX: tokenizar args en vez de "flag in all_args" (substring).
+        # El matching por substring bloqueaba comandos legítimos como
+        # "git merge --ff-only" (contiene "-f") o "git checkout -b
+        # feature-flag" (contiene "-f" dentro del nombre de rama), y podía
+        # dejar pasar variantes con "=" (ej. "--force=true") que no
+        # coincidieran exactamente con el string buscado.
+        try:
+            tokens = shlex.split(args) if args else []
+        except ValueError:
+            # args mal formado (comillas sin cerrar, etc.) — dejar que git
+            # reporte el error real en vez de intentar parsear a medias.
+            tokens = args.split() if args else []
+
+        token_set = {t.lower() for t in tokens}
         for flag in _DANGEROUS_FLAGS:
-            if flag in all_args:
+            flag_lower = flag.lower()
+            matched = (
+                flag_lower in token_set
+                or any(t.lower().startswith(flag_lower + "=") for t in tokens)
+            )
+            if matched:
                 return (
                     False,
                     f"'git {cmd} {flag}' es una operación destructiva. "
@@ -57,7 +75,7 @@ class GitValidator:
                 )
 
         # git clean sin -n (dry-run) es peligroso
-        if cmd == "clean" and "-n" not in all_args and "--dry-run" not in all_args:
+        if cmd == "clean" and "-n" not in token_set and "--dry-run" not in token_set:
             return (
                 False,
                 "git clean sin --dry-run puede eliminar archivos. "

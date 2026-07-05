@@ -29,9 +29,11 @@ class ConversationContext:
                 )
             else:
                 content = result.content
+
+            # FIX: usar el nombre real del tool en lugar del hardcodeado "tool"
             self._messages.append({
                 "role": "tool",
-                "name": "tool",
+                "name": result.tool_name or "tool",
                 "content": content,
             })
 
@@ -50,9 +52,31 @@ class ConversationContext:
         self._messages = []
 
     def _trim(self) -> list[dict]:
-        limit = self._max_history * 2
-        if limit == 0:
+        """
+        Retorna los últimos N turnos completos.
+
+        FIX: el trim anterior cortaba por número de mensajes, lo que podía
+        dejar tool results huérfanos (sin el assistant que los pidió) o
+        un assistant sin los tool results que referencia.
+
+        Ahora se reconstruye por turnos: cada turno = un user message + todo
+        lo que viene después (assistant, tool results) hasta el siguiente user.
+        Se mantienen los últimos max_history turnos completos.
+        """
+        if not self._messages:
             return []
-        if len(self._messages) > limit:
-            return self._messages[-limit:]
-        return self._messages.copy()
+
+        # Partir en turnos por cada mensaje de rol "user"
+        turns: list[list[dict]] = []
+        current: list[dict] = []
+        for msg in self._messages:
+            if msg["role"] == "user" and current:
+                turns.append(current)
+                current = []
+            current.append(msg)
+        if current:
+            turns.append(current)
+
+        # Mantener los últimos max_history turnos
+        kept = turns[-self._max_history:] if len(turns) > self._max_history else turns
+        return [msg for turn in kept for msg in turn]

@@ -6,6 +6,9 @@ from pathlib import Path
 from .base import BaseTool, PathSafeguard, ToolResult
 
 
+_READ_LIMIT = 50 * 1024  # 50KB límite de lectura
+
+
 class CreateFileTool(BaseTool):
     name = "create_file"
     description = "Crea un archivo con contenido. Crea directorios padre si no existen."
@@ -62,9 +65,12 @@ class ReadFileTool(BaseTool):
                     is_error=True,
                 )
             size = path.stat().st_size
-            if size > 50 * 1024:
-                content = await asyncio.to_thread(path.read_text, encoding="utf-8")
-                content = content[:50_000] + "\n... [truncated at 50KB]"
+            if size > _READ_LIMIT:
+                # FIX: Leer solo los primeros 50KB, no todo el archivo
+                content = await asyncio.to_thread(
+                    _read_first_n_bytes, path, _READ_LIMIT
+                )
+                content = content + "\n... [truncated at 50KB]"
             else:
                 content = await asyncio.to_thread(path.read_text, encoding="utf-8")
             return ToolResult(tool_use_id=tool_use_id, content=content)
@@ -198,7 +204,7 @@ class CopyFileTool(BaseTool):
 
 class DeleteFileTool(BaseTool):
     name = "delete_file"
-    description = "Elimina un archivo. Requiere confirmación."
+    description = "Elimina un archivo. Para carpetas usa delete_directory."
     input_schema = {
         "type": "object",
         "properties": {"path": {"type": "string"}},
@@ -218,9 +224,13 @@ class DeleteFileTool(BaseTool):
                     is_error=True,
                 )
             if path.is_dir():
+                # FIX: mensaje explícito que guía al modelo hacia el tool correcto
                 return ToolResult(
                     tool_use_id=tool_use_id,
-                    content=f"Is a directory, not a file: {path}",
+                    content=(
+                        f"'{path.name}' es una carpeta, no un archivo. "
+                        f"Usa delete_directory para eliminar carpetas."
+                    ),
                     is_error=True,
                 )
             await asyncio.to_thread(path.unlink)
@@ -251,6 +261,94 @@ class CreateDirectoryTool(BaseTool):
             )
         except PermissionError as e:
             return ToolResult(tool_use_id=tool_use_id, content=str(e), is_error=True)
+
+
+# FIX: tool que faltaba — el agente no tenía forma de eliminar carpetas.
+# Causaba dead loop: delete_file fallaba → anti-loop bloqueaba → usuario atascado.
+class DeleteDirectoryTool(BaseTool):
+    name = "delete_directory"
+    description = (
+        "Elimina una carpeta y todo su contenido de forma recursiva. "
+        "Requiere confirmación explícita del usuario. "
+        "Para archivos individuales usa delete_file."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Ruta absoluta de la carpeta a eliminar",
+            },
+        },
+        "required": ["path"],
+    }
+
+    # Rutas que NUNCA se pueden eliminar, independientemente de blocked_paths
+    _PROTECTED: frozenset[str] = frozenset({
+        "/", "/home", "/root", "/tmp", "/var", "/etc",
+        "/usr", "/bin", "/sbin", "/lib", "/opt",
+    })
+
+    def __init__(self, safeguard: PathSafeguard):
+        self._safeguard = safeguard
+
+    async def execute(self, tool_use_id: str, **kwargs) -> ToolResult:
+        try:
+            path = self._safeguard.validate(kwargs["path"])
+
+            if not path.exists():
+                return ToolResult(
+                    tool_use_id=tool_use_id,
+                    content=f"Carpeta no encontrada: {path}",
+                    is_error=True,
+                )
+
+            if not path.is_dir():
+                return ToolResult(
+                    tool_use_id=tool_use_id,
+                    content=f"'{path.name}' no es una carpeta. Usa delete_file.",
+                    is_error=True,
+                )
+
+            # Doble check: no eliminar directorios críticos
+            if str(path) in self._PROTECTED:
+                return ToolResult(
+                    tool_use_id=tool_use_id,
+                    content=f"Ruta protegida — no se puede eliminar: {path}",
+                    is_error=True,
+                )
+
+            # No eliminar home del usuario
+            home = Path.home()
+            if path == home:
+                return ToolResult(
+                    tool_use_id=tool_use_id,
+                    content="No se puede eliminar el directorio home del usuario.",
+                    is_error=True,
+                )
+
+            # Contar archivos antes de eliminar (para el reporte)
+            file_count = sum(1 for _ in path.rglob("*") if _.is_file())
+            dir_name = path.name
+
+            await asyncio.to_thread(shutil.rmtree, str(path))
+
+            return ToolResult(
+                tool_use_id=tool_use_id,
+                content=(
+                    f"Carpeta eliminada: {path} "
+                    f"({file_count} archivo(s) eliminado(s))"
+                ),
+            )
+
+        except PermissionError as e:
+            return ToolResult(tool_use_id=tool_use_id, content=str(e), is_error=True)
+        except Exception as e:
+            return ToolResult(
+                tool_use_id=tool_use_id,
+                content=f"Error al eliminar carpeta: {e}",
+                is_error=True,
+            )
 
 
 class SearchFilesTool(BaseTool):
@@ -304,6 +402,15 @@ def build_file_tools(safeguard: PathSafeguard, enabled: list[str]) -> list[BaseT
         CopyFileTool(safeguard),
         DeleteFileTool(safeguard),
         CreateDirectoryTool(safeguard),
+        DeleteDirectoryTool(safeguard),   # FIX: agregado
         SearchFilesTool(safeguard),
     ]
     return [t for t in all_tools if t.name in enabled]
+
+
+# ─── Helper para lectura limitada ─────────────────────────────────────────────
+
+def _read_first_n_bytes(path: Path, limit: int) -> str:
+    """Lee solo los primeros N bytes de un archivo como texto."""
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        return f.read(limit)

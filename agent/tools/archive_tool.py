@@ -1,11 +1,23 @@
 # agent/tools/archive_tool.py
+"""
+ArchiveTool — crea, extrae o lista archivos comprimidos (zip, tar.gz).
+
+Usa archive_utils.py para operaciones de archivo (DRY con BackupTool).
+"""
 from __future__ import annotations
 
 import asyncio
-import tarfile
-import zipfile
 from pathlib import Path
 
+from .archive_utils import (
+    create_zip_archive,
+    create_tar_archive,
+    extract_zip_archive,
+    extract_tar_archive,
+    list_zip_contents,
+    list_tar_contents,
+    format_size,
+)
 from .base import BaseTool, PathSafeguard, ToolResult
 
 
@@ -52,15 +64,11 @@ class ArchiveTool(BaseTool):
 
             match action:
                 case "create":
-                    result = await asyncio.to_thread(
-                        _create_archive, path, destination, fmt
-                    )
+                    result = await self._handle_create(path, destination, fmt)
                 case "extract":
-                    result = await asyncio.to_thread(
-                        _extract_archive, path, destination
-                    )
+                    result = await self._handle_extract(path, destination)
                 case "list":
-                    result = await asyncio.to_thread(_list_archive, path)
+                    result = await self._handle_list(path)
                 case _:
                     return ToolResult(
                         tool_use_id=tool_use_id,
@@ -79,97 +87,63 @@ class ArchiveTool(BaseTool):
                 is_error=True,
             )
 
+    async def _handle_create(
+        self, source: Path, dest: Path | None, fmt: str
+    ) -> str:
+        if not source.exists():
+            raise FileNotFoundError(f"No existe: {source}")
 
-# ── Funciones auxiliares ───────────────────────────────────────────────────────
+        if dest is None:
+            dest = source.parent / f"{source.name}.{fmt}"
+        elif dest.is_dir():
+            dest = dest / f"{source.name}.{fmt}"
 
-def _create_archive(source: Path, dest: Path | None, fmt: str) -> str:
-    if not source.exists():
-        raise FileNotFoundError(f"No existe: {source}")
+        if fmt == "zip":
+            size = await asyncio.to_thread(create_zip_archive, source, dest)
+        else:
+            mode = "w:gz" if fmt == "tar.gz" else "w"
+            size = await asyncio.to_thread(create_tar_archive, source, dest, mode)
 
-    if dest is None:
-        dest = source.parent / f"{source.name}.{fmt}"
-    elif dest.is_dir():
-        dest = dest / f"{source.name}.{fmt}"
+        return f"Archivo creado: {dest} ({format_size(size)})"
 
-    if fmt == "zip":
-        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
-            if source.is_file():
-                zf.write(source, source.name)
-            else:
-                for item in source.rglob("*"):
-                    zf.write(item, item.relative_to(source.parent))
-    else:
-        mode = "w:gz" if fmt == "tar.gz" else "w"
-        with tarfile.open(dest, mode) as tf:
-            tf.add(source, arcname=source.name)
+    async def _handle_extract(self, archive: Path, dest: Path | None) -> str:
+        if not archive.exists():
+            raise FileNotFoundError(f"No existe: {archive}")
 
-    size = dest.stat().st_size
-    return f"Archivo creado: {dest} ({_fmt_size(size)})"
+        if dest is None:
+            dest = archive.parent / archive.stem
+        dest.mkdir(parents=True, exist_ok=True)
 
+        name = archive.name.lower()
 
-def _extract_archive(archive: Path, dest: Path | None) -> str:
-    if not archive.exists():
-        raise FileNotFoundError(f"No existe: {archive}")
+        if name.endswith(".zip"):
+            count = await asyncio.to_thread(extract_zip_archive, archive, dest)
+        elif name.endswith((".tar.gz", ".tgz", ".tar")):
+            count = await asyncio.to_thread(extract_tar_archive, archive, dest)
+        else:
+            raise ValueError(f"Formato no reconocido: {archive.suffix}")
 
-    if dest is None:
-        dest = archive.parent / archive.stem
-    dest.mkdir(parents=True, exist_ok=True)
+        return f"Extraídos {count} archivos en {dest}"
 
-    name = archive.name.lower()
+    async def _handle_list(self, archive: Path) -> str:
+        if not archive.exists():
+            raise FileNotFoundError(f"No existe: {archive}")
 
-    if name.endswith(".zip"):
-        with zipfile.ZipFile(archive, "r") as zf:
-            # Zip slip protection
-            for member in zf.namelist():
-                member_path = (dest / member).resolve()
-                if not str(member_path).startswith(str(dest.resolve())):
-                    raise ValueError(f"Zip slip detectado: {member}")
-            zf.extractall(dest)
-            count = len(zf.namelist())
-    elif name.endswith((".tar.gz", ".tgz", ".tar")):
-        with tarfile.open(archive, "r:*") as tf:
-            # Tar slip protection
-            for member in tf.getmembers():
-                member_path = (dest / member.name).resolve()
-                if not str(member_path).startswith(str(dest.resolve())):
-                    raise ValueError(f"Tar slip detectado: {member.name}")
-            tf.extractall(dest)
-            count = len(tf.getmembers())
-    else:
-        raise ValueError(f"Formato no reconocido: {archive.suffix}")
+        name = archive.name.lower()
+        lines: list[str] = [f"Contenido de {archive.name}:\n"]
 
-    return f"Extraídos {count} archivos en {dest}"
+        if name.endswith(".zip"):
+            items = await asyncio.to_thread(list_zip_contents, archive)
+            for filename, size in items:
+                lines.append(f"  {filename:<50} {format_size(size)}")
+        elif name.endswith((".tar.gz", ".tgz", ".tar")):
+            items = await asyncio.to_thread(list_tar_contents, archive)
+            for filename, size in items:
+                lines.append(f"  {filename:<50} {format_size(size)}")
+        else:
+            raise ValueError(f"Formato no reconocido: {archive.suffix}")
 
-
-def _list_archive(archive: Path) -> str:
-    if not archive.exists():
-        raise FileNotFoundError(f"No existe: {archive}")
-
-    name = archive.name.lower()
-    lines: list[str] = [f"Contenido de {archive.name}:\n"]
-
-    if name.endswith(".zip"):
-        with zipfile.ZipFile(archive, "r") as zf:
-            for info in zf.infolist():
-                size = _fmt_size(info.file_size)
-                lines.append(f"  {info.filename:<50} {size}")
-    elif name.endswith((".tar.gz", ".tgz", ".tar")):
-        with tarfile.open(archive, "r:*") as tf:
-            for member in tf.getmembers():
-                size = _fmt_size(member.size)
-                lines.append(f"  {member.name:<50} {size}")
-    else:
-        raise ValueError(f"Formato no reconocido: {archive.suffix}")
-
-    lines.append(f"\nTotal: {len(lines) - 2} elementos")
-    if len(lines) > 52:
-        lines = lines[:52] + ["... [lista truncada a 50 elementos]"]
-    return "\n".join(lines)
-
-
-def _fmt_size(n: int) -> str:
-    if n < 1024:
-        return f"{n}B"
-    if n < 1024 ** 2:
-        return f"{n / 1024:.1f}KB"
-    return f"{n / 1024 ** 2:.1f}MB"
+        lines.append(f"\nTotal: {len(lines) - 2} elementos")
+        if len(lines) > 52:
+            lines = lines[:52] + ["... [lista truncada a 50 elementos]"]
+        return "\n".join(lines)

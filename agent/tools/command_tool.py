@@ -38,13 +38,36 @@ class CommandValidator:
         except (PermissionError, ValueError):
             return (False, SecurityLevel.BLOCKED)
 
+    def detect_shell_operators(self, command: str) -> bool:
+        """
+        Detecta si el comando contiene operadores de shell.
+
+        FIX: "&" (background / "&&") faltaba en el set de detección. Antes,
+        "cmd1 && cmd2" pasaba de largo la validación de use_shell=true,
+        llegaba a shlex.split() + subprocess_exec (modo NO-shell) y fallaba
+        con un error confuso de "archivo no encontrado" en lugar del mensaje
+        claro pidiendo use_shell=true.
+        """
+        dangerous = {"|", "&", ";", "$", "`", "(", ")", ">", "<"}
+        return any(c in command for c in dangerous)
+
 
 class RunCommandTool(BaseTool):
     name = "run_command"
-    description = "Ejecuta un comando de shell con validación de seguridad y timeout."
+    description = (
+        "Ejecuta un comando de shell con validación de seguridad y timeout. "
+        "Soporta operadores de shell (pipes, redirects) con confirmación."
+    )
     input_schema = {
         "type": "object",
-        "properties": {"command": {"type": "string"}},
+        "properties": {
+            "command": {"type": "string", "description": "Comando a ejecutar"},
+            "use_shell": {
+                "type": "boolean",
+                "default": False,
+                "description": "True para usar shell (permite pipes, redirects). Requiere confirmación.",
+            },
+        },
         "required": ["command"],
     }
 
@@ -55,6 +78,8 @@ class RunCommandTool(BaseTool):
 
     async def execute(self, tool_use_id: str, **kwargs) -> ToolResult:
         command = kwargs.get("command", "")
+        use_shell = kwargs.get("use_shell", False)
+
         allowed, level = self._validator.is_allowed(command)
 
         if not allowed:
@@ -64,15 +89,39 @@ class RunCommandTool(BaseTool):
                 is_error=True,
             )
 
+        # Detectar operadores de shell automáticamente
+        has_shell_ops = self._validator.detect_shell_operators(command)
+
+        if has_shell_ops and not use_shell:
+            return ToolResult(
+                tool_use_id=tool_use_id,
+                content=(
+                    f"El comando contiene operadores de shell (|, ;, >, <, etc.). "
+                    f"Para ejecutarlo usa use_shell=true. "
+                    f"Alternativa: ejecuta los comandos por separado sin operadores."
+                ),
+                is_error=True,
+            )
+
         timeout = self._timeouts.get(level.value, 30)
         proc = None
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *shlex.split(command),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            if use_shell:
+                # Shell mode: usa subprocess_shell para pipes/redirects
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                # Safe mode: subprocess_exec, sin shell
+                proc = await asyncio.create_subprocess_exec(
+                    *shlex.split(command),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )

@@ -280,10 +280,10 @@ def _create_pptx(
 
     prs = Presentation()
 
-    # Colores por tema
+    # FIX: colores por tema — dark ahora es verdadero gris oscuro, no azul marino
     themes = {
-        "light": {"bg": RGBColor(0xFF, 0xFF, 0xFF), "title": RGBColor(0x1A, 0x1A, 0x2E), "body": RGBColor(0x33, 0x33, 0x33)},
-        "dark":  {"bg": RGBColor(0x1A, 0x1A, 0x2E), "title": RGBColor(0xFF, 0xFF, 0xFF), "body": RGBColor(0xCC, 0xCC, 0xCC)},
+        "light":   {"bg": RGBColor(0xFF, 0xFF, 0xFF), "title": RGBColor(0x1A, 0x1A, 0x2E), "body": RGBColor(0x33, 0x33, 0x33)},
+        "dark":    {"bg": RGBColor(0x1E, 0x1E, 0x1E), "title": RGBColor(0xFF, 0xFF, 0xFF), "body": RGBColor(0xCC, 0xCC, 0xCC)},  # ← FIX: true dark
         "minimal": {"bg": RGBColor(0xF8, 0xF8, 0xF8), "title": RGBColor(0x00, 0x00, 0x00), "body": RGBColor(0x44, 0x44, 0x44)},
     }
     colors = themes.get(theme, themes["light"])

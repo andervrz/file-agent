@@ -1,16 +1,17 @@
 # agent/tools/backup_tool.py
+"""
+BackupTool — crea una copia de seguridad comprimida de un archivo o directorio.
+
+Usa archive_utils.py para operaciones de archivo (DRY con ArchiveTool).
+"""
 from __future__ import annotations
 
 import asyncio
-import tarfile
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .archive_utils import create_zip_archive, create_tar_archive, format_size
 from .base import BaseTool, PathSafeguard, ToolResult
-
-_EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".mypy_cache"}
-_EXCLUDE_EXTS = {".pyc", ".pyo"}
 
 
 class BackupTool(BaseTool):
@@ -60,12 +61,14 @@ class BackupTool(BaseTool):
             backup_name = _generate_name(source.name, fmt)
             backup_path = dest_dir / backup_name
 
-            size = await asyncio.to_thread(
-                _create_backup, source, backup_path, fmt
-            )
+            if fmt == "zip":
+                size = await asyncio.to_thread(create_zip_archive, source, backup_path)
+            else:
+                size = await asyncio.to_thread(create_tar_archive, source, backup_path)
+
             return ToolResult(
                 tool_use_id=tool_use_id,
-                content=f"Backup creado: {backup_path} ({_format_size(size)})",
+                content=f"Backup creado: {backup_path} ({format_size(size)})",
             )
         except PermissionError as e:
             return ToolResult(tool_use_id=tool_use_id, content=str(e), is_error=True)
@@ -82,47 +85,3 @@ class BackupTool(BaseTool):
 def _generate_name(basename: str, fmt: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"{basename}_{ts}.{fmt}"
-
-
-def _should_exclude(path: Path) -> bool:
-    return path.name in _EXCLUDE_DIRS or path.suffix in _EXCLUDE_EXTS
-
-
-def _create_backup(source: Path, dest: Path, fmt: str) -> int:
-    if fmt == "zip":
-        return _create_zip(source, dest)
-    return _create_targz(source, dest)
-
-
-def _create_zip(source: Path, dest: Path) -> int:
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
-        if source.is_file():
-            zf.write(source, source.name)
-        else:
-            for item in source.rglob("*"):
-                if any(_should_exclude(p) for p in item.parents) or _should_exclude(item):
-                    continue
-                zf.write(item, item.relative_to(source.parent))
-    return dest.stat().st_size
-
-
-def _create_targz(source: Path, dest: Path) -> int:
-    with tarfile.open(dest, "w:gz") as tf:
-        if source.is_file():
-            tf.add(source, arcname=source.name)
-        else:
-            for item in source.rglob("*"):
-                if any(_should_exclude(p) for p in item.parents) or _should_exclude(item):
-                    continue
-                tf.add(item, arcname=item.relative_to(source.parent))
-    return dest.stat().st_size
-
-
-def _format_size(n: int) -> str:
-    if n < 1024:
-        return f"{n}B"
-    if n < 1024 ** 2:
-        return f"{n / 1024:.1f}KB"
-    if n < 1024 ** 3:
-        return f"{n / 1024 ** 2:.1f}MB"
-    return f"{n / 1024 ** 3:.1f}GB"

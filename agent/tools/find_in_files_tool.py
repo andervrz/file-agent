@@ -6,11 +6,13 @@ from pathlib import Path
 
 from .base import BaseTool, PathSafeguard, ToolResult
 
+# FIX: agregadas extensiones web comunes faltantes (.php, .vue, .jsx, .tsx)
 _TEXT_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml",
     ".toml", ".csv", ".html", ".css", ".xml", ".sh", ".env",
     ".cfg", ".ini", ".log", ".rst", ".sql", ".go", ".rs", ".rb",
     ".java", ".c", ".cpp", ".h", ".hpp", ".kt", ".swift",
+    ".php", ".vue", ".jsx", ".tsx",  # ← FIX: agregados
 }
 
 _SKIP_DIRS = {

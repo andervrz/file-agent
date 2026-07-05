@@ -57,7 +57,6 @@ class OllamaClient:
         response = await self._client.chat(**kwargs)
         duration_ms = int((time.perf_counter() - start) * 1000)
 
-        # Parsear tool calls
         tool_calls: list[ToolCall] = []
         if response.message.tool_calls:
             for tc in response.message.tool_calls:

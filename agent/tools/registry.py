@@ -17,14 +17,20 @@ class ToolRegistry:
         if tool is None:
             return ToolResult(
                 tool_use_id=tool_use_id,
+                tool_name=name,
                 content=f"Tool not found: {name}",
                 is_error=True,
             )
         try:
-            return await tool.execute(tool_use_id=tool_use_id, **kwargs)
+            result = await tool.execute(tool_use_id=tool_use_id, **kwargs)
+            # FIX: inyectar tool_name si el tool no lo puso
+            if not result.tool_name:
+                result = result.model_copy(update={"tool_name": name})
+            return result
         except Exception as e:
             return ToolResult(
                 tool_use_id=tool_use_id,
+                tool_name=name,
                 content=f"Execution error: {e}",
                 is_error=True,
             )
